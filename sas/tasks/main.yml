@@ -1,0 +1,123 @@
+---
+- name: Making {{ state }} of the SASDeploymentAgent service
+  command: bash /sasbin/SASDeploymentAgent/9.4/agent.sh {{ state }}
+  register: agentout
+  debug: var=out.stdout_lines
+  tags: agent
+
+- name: Making {{ state }} of the SAS Analytics service
+  shell: /sasconfig/Lev1/sas.servers {{ state }}
+  async: 2600
+  poll: 60
+  register: analytcsout
+  failed_when: "state == 'stop' and  analytcsout.rc == 2"
+  debug: var=analytcsout.stdout_lines
+  tags: analytics
+  
+- name: check services
+  command:  /sasconfig/Lev1/sas.servers status
+  register: checkout
+  debug: var=checkout.stdout_lines
+  failed_when: filter|string in analytcsout.stdout
+  tags: analytics
+
+- name: Making {{ state }} of the SAS Computer CI service
+  shell: /sasconfig/Lev1/sas.servers {{ state }}
+  async: 2600
+  poll: 60
+  register: ciout
+  failed_when: "state == 'stop' and  ciout.rc == 2"
+  debug: var=ciout.stdout_lines
+  tags: computer
+
+- name: check services
+  shell: /sasconfig/Lev1/sas.servers status
+  register: checkout
+  debug: var=checkout.stdout_lines 
+  failed_when: filter|string in checkout.stdout
+  tags: computer
+
+- name: Making {{state}} of the SAS LSF PM service
+  script: lsf.sh {{ state }}
+  register: lsfout
+  failed_when: lsfout.rc == 1
+  debug: var=lsfout.stdout_lines
+  tags: lsf
+
+- name: Making {{state}} of SAS services metadata on {{inventory_hostname_short}} server
+  shell: /sasconfig/Lev1/sas.servers {{ state }}
+  async: 2600
+  poll: 60
+  register: metadataout
+  failed_when: "state == 'stop' and metadataout.rc == 2"      
+  debug: var=metadataout.stdout_lines
+  tags: metadataout
+
+- name: check services
+  shell: /sasconfig/Lev1/sas.servers status
+  register: checkout
+  debug: var=checkout.stdout_lines
+  failed_when: filter|string in checkout.stdout
+  tags: metadataout
+
+- name: Making {{state}} of the SAS Middle Tier services on the {{inventory_hostname_short}} server
+  shell:  /sasconfig/Lev1/sas.servers {{ state }}
+  async: 2600
+  poll: 60
+  register: middleout
+  failed_when: "state == 'stop' and  middleout.rc == 2"
+  debug: var=middleout.stdout_lines
+  tags: middle
+
+- name: check services
+  command: bash  /sasconfig/Lev1/sas.servers status
+  register: checkout    
+  debug: var=checkout.stdout_lines
+  failed_when: filter|string in checkout.stdout
+  tags: middle
+
+- name: check SASAdmin
+  uri:
+    url: https://localhost:8343/SASAdmin
+    return_content: yes
+    validate_certs: no
+  register: checksasadmin
+  failed_when: "'SAS' not in checksasadmin.content"
+  when: state == "start"
+  tags: checkurl
+      
+- name: check SASCIStudio
+  uri:
+    url: https://localhost:8343/SASCIStudio
+    return_content: yes
+    validate_certs: no
+  register: checksascistudio
+  failed_when: "'SAS' not in checksascistudio.content"
+  when: state == "start"
+  tags: checkurl         
+
+- name: Listing processes to be killed
+  ignore_errors: yes
+  shell: "ps -ef | grep -v avahi | grep -v grep |grep -i 'sas\\|lsf'| awk '{ print $2 }'"
+  register: processes
+  debug: var=processes.stdout_lines
+  tags: killing
+
+- name: Waiting {{ time }} seconds to proceed with the next task
+  wait_for:
+    timeout: "{{ time }}"
+  tags: sleeping
+
+
+- name: running process kill
+  ignore_errors: yes       
+  shell: "kill -9 {{ item }}"
+  with_items: "{{ processes.stdout_lines  | default([]) }}"
+  tags: killing
+
+- name: Listing all active processes on the servers
+  shell: "ps -ef"
+  register: procs
+  debug: var=procs.stdout_lines
+  tags: killing
+

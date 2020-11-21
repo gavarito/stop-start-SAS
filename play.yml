@@ -1,0 +1,9 @@
+---
+- hosts: all
+  become: yes
+  become_user: "{{ user }}"
+  order: sorted
+  gather_facts: no
+  serial: '{{ serie }}'
+  roles: 
+    - sas          
